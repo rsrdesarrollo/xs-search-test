@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html>
+   <head>
+      <meta charset="utf-8">
+      <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.0/css/bootstrap.min.css">
+      <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+      <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.0/js/bootstrap.min.js"></script>
+	  <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.11/lodash.js" integrity="sha256-vS9J2VYhvwAfh2znnLdkhemFPEpx6YoZEhExqBPT5ys=" crossorigin="anonymous"></script>
+	  <!-- Load d3.js -->
+      <script src="https://d3js.org/d3.v4.js"></script>
+      <script>
+	    var globalData = [];		
+		var globalFoundTerm = "";
+		var globalNotFoundTerm = "";
+		var globalHistogramInterval = 100;
+		
+		function plot_histogram(data, found_term, not_found_term) {
+			var canvas = $("#my_dataviz")
+			canvas.empty();
+			
+			if (globalData.length == 0 || globalHistogramInterval <= 0){
+				return;
+			}
+			
+			var min_time = d3.min(data, function(d) {return d.value;});
+			var max_time = d3.max(data, function(d) {return d.value;})
+			
+			// set the dimensions and margins of the graph
+			var margin = {
+					top: 10,
+					right: 30,
+					bottom: 30,
+					left: 40
+				},
+				width = canvas.width() - margin.left - margin.right,
+				height = 500 - margin.top - margin.bottom;
+
+			var svg = d3.select("#my_dataviz")
+				.append("svg")
+				.attr("width", width + margin.left + margin.right)
+				.attr("height", height + margin.top + margin.bottom)
+				.append("g")
+				.attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+			// X axis: scale and draw:
+			var x = d3.scaleLinear()
+				.domain([
+					min_time - 100,
+					max_time + 100
+				])
+				.range([0, width]);
+				
+			svg.append("g")
+				.attr("transform", "translate(0," + height + ")")
+				.call(d3.axisBottom(x));
+
+			// text label for the x axis
+			svg.append("text")
+				.attr("transform",
+					"translate(" + (width / 2) + " ," +
+					(height + margin.top + 20) + ")")
+				.style("text-anchor", "middle")
+				.text("Time (ms)");
+
+			// set the parameters for the histogram
+			var histogram = d3.histogram()
+				.value(function(d) {
+					return d.value;
+				}) // I need to give the vector of value
+				.domain(x.domain()) // then the domain of the graphic
+				.thresholds(
+					_.range(
+						parseInt(min_time/globalHistogramInterval)*globalHistogramInterval,
+						parseInt((max_time+globalHistogramInterval*2)/globalHistogramInterval)*globalHistogramInterval, 
+						globalHistogramInterval
+					)
+				);
+
+			// And apply twice this function to data to get the bins.
+			var bins1 = histogram(data.filter(function(d) {
+				return d.type === found_term
+			}));
+			var bins2 = histogram(data.filter(function(d) {
+				return d.type === not_found_term
+			}));
+
+			// Y axis: scale and draw:
+			var y = d3.scaleLinear()
+				.range([height, 0]);
+			y.domain([0, d3.max(bins1, function(d) {
+				return d.length;
+			})]); // d3.hist has to be called before the Y axis obviously
+			svg.append("g")
+				.call(d3.axisLeft(y));
+
+			// append the bars for sery 1
+			svg.selectAll("rect")
+				.data(bins1)
+				.enter()
+				.append("rect")
+				.attr("x", 1)
+				.attr("transform", function(d) {
+					return "translate(" + x(d.x0) + "," + y(d.length) + ")";
+				})
+				.attr("width", function(d) {
+					return x(d.x1) - x(d.x0) - 1;
+				})
+				.attr("height", function(d) {
+					return height - y(d.length);
+				})
+				.style("fill", "#7de398")
+				.style("opacity", 0.6)
+
+			// append the bars for sery 1
+			svg.selectAll("rect2")
+				.data(bins2)
+				.enter()
+				.append("rect")
+				.attr("x", 1)
+				.attr("transform", function(d) {
+					return "translate(" + x(d.x0) + "," + y(d.length) + ")";
+				})
+				.attr("width", function(d) {
+					return x(d.x1) - x(d.x0) - 1;
+				})
+				.attr("height", function(d) {
+					return height - y(d.length);
+				})
+				.style("fill", "#e37d7d")
+				.style("opacity", 0.6)
+
+			// Handmade legend
+			svg.append("circle").attr("cx", 50).attr("cy", 30).attr("r", 6).style("fill", "#7de398")
+			svg.append("circle").attr("cx", 50).attr("cy", 60).attr("r", 6).style("fill", "#e37d7d")
+			svg.append("text").attr("x", 70).attr("y", 30).text(found_term).style("font-size", "15px").attr("alignment-baseline", "middle")
+			svg.append("text").attr("x", 70).attr("y", 60).text(not_found_term).style("font-size", "15px").attr("alignment-baseline", "middle")
+
+			// text label for the y axis
+			svg.append("text")
+				.attr("transform", "rotate(-90)")
+				.attr("y", 0 - margin.left)
+				.attr("x", 0 - (height / 2))
+				.attr("dy", "1em")
+				.style("text-anchor", "middle")
+				.text("Requests");
+
+		}
+
+
+		async function fetch_time(url) {
+			var startTime = new Date();
+
+			url = new URL(url);
+			params = new URLSearchParams(url.search);
+			params.append(Date.now(), 1);
+			url.search = params.toString()
+
+			url = url.toString()
+
+			var resp = await fetch(
+				url, {
+					method: 'GET',
+					credentials: 'include',
+					mode: 'no-cors'
+				}
+			);
+			var endTime = new Date();
+
+			return endTime - startTime;
+		}
+
+		function search(url, found_term, not_found_term, nrequest) {
+
+			let dataPrimise = new Promise(async (resolve, reject) => {
+				let data = [];
+
+				for (i = 0; i < nrequest; i++) {
+					var not_found_time, found_time;
+					var random_boolean = Math.random() >= 0.5;
+					if (random_boolean){
+						not_found_time = await fetch_time(url.replace("$", not_found_term));
+						found_time = await fetch_time(url.replace("$", found_term));
+					}else{
+						found_time = await fetch_time(url.replace("$", found_term));
+						not_found_time = await fetch_time(url.replace("$", not_found_term));
+					}
+					
+					data.push({
+						type: found_term,
+						value: found_time
+					});
+					data.push({
+						type: not_found_term,
+						value: not_found_time
+					});
+
+					$("#progress").width('' + (i + 1) * 100 / nrequest + '%');
+				}
+
+				resolve(data);
+			});
+
+			return dataPrimise;
+
+		}
+
+		function scan() {
+			var found_term = document.getElementById('txtTermOk').value;
+			var not_found_term = document.getElementById('txtTermKo').value;
+			var URL = document.getElementById('url').value;
+			var numRequests = +document.getElementById('numRequests').value
+
+			search(URL, found_term, not_found_term, numRequests).then(
+				function(data) {
+					globalData = data;
+					globalFoundTerm = found_term;
+					globalNotFoundTerm = not_found_term;
+					
+					refresh_plot();
+				}
+			)
+		}
+		
+		function refresh_plot(){
+			globalHistogramInterval = +document.getElementById('histogramInterval').value
+			plot_histogram(globalData, globalFoundTerm, globalNotFoundTerm);
+		}
+      </script>
+   </head>
+   <body>
+      <div class="container">
+         <h2>XS-Search Test</h2>
+         <div class="row">
+            <div class="form-group">
+               <label for="url">URL (Character $ locates search parameter):</label>
+               <input type="text" class="form-control" id="url">
+            </div>
+            <div class="form-group">
+               <label for="txtTermOk">Existent Term:</label>
+               <input type="text" class="form-control" id="txtTermOk">
+            </div>
+            <div class="form-group">
+               <label for="txtTermKo">Nonexistent Term:</label>
+               <input type="text" class="form-control" id="txtTermKo">
+            </div>
+            <div class="form-group">
+               <label for="numRequests">Number Requests:</label>
+               <input type="number" value="100" class="form-control" id="numRequests" step="10">
+            </div>
+			<div class="form-group">
+               <label for="histogramInterval">Histogram Interval (ms):</label>
+               <input type="number" value="10" class="form-control" id="histogramInterval" onchange="refresh_plot()" step="10">
+            </div>
+         </div>
+         <div class="row">
+            <div class="col-sm-1">
+               <button onclick="scan()" class="btn btn-default">Run!</button>
+            </div>
+            <div class="col-sm-11">
+               <div class="progress">
+                  <div class="progress-bar" id="progress" role="progressbar" aria-valuenow="70" aria-valuemin="0" aria-valuemax="100" style="width:0%"></div>
+               </div>
+            </div>
+         </div>
+         <div id="my_dataviz" class="col-12"></div>
+      </div>
+   </body>
+</html>
